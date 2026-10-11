@@ -1,0 +1,197 @@
+{
+  "info": {
+    "name": "Employee Attendance API",
+    "description": "End-to-end checks for every API route. Run the collection against a dedicated test database: it creates two employees and one attendance record, and the API has no delete endpoint.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000" }
+  ],
+  "item": [
+    {
+      "name": "Initialize run and health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('health returns 200 and ready', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().status).to.eql('ok');",
+              "});",
+              "var suffix = Math.floor(100000 + Math.random() * 899998);",
+              "var now = Date.now();",
+              "var istDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));",
+              "pm.collectionVariables.set('empCode', 'EMP' + suffix);",
+              "pm.collectionVariables.set('empCode2', 'EMP' + (suffix + 1));",
+              "pm.collectionVariables.set('department', 'PostmanQA-' + suffix);",
+              "pm.collectionVariables.set('today', istDate);",
+              "pm.collectionVariables.set('month', istDate.slice(0, 7));",
+              "pm.collectionVariables.set('punchInAt', String(now));",
+              "pm.collectionVariables.set('punchOutAt', String(now + 8 * 60 * 60 * 1000));"
+            ]
+          }
+        }
+      ],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/health" }
+    },
+    {
+      "name": "Create employee",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('employee created with epoch created_at and no Mongo id', function () {",
+        "  pm.response.to.have.status(201);",
+        "  var body = pm.response.json();",
+        "  pm.expect(body.emp_code).to.eql(pm.collectionVariables.get('empCode'));",
+        "  pm.expect(body.created_at).to.be.a('number');",
+        "  pm.expect(body).not.to.have.property('_id');",
+        "});"
+      ]}}],
+      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"emp_code\": \"{{empCode}}\",\n  \"name\": \"Postman Test Employee\",\n  \"email\": \"{{empCode}}@example.test\",\n  \"department\": \"{{department}}\",\n  \"joined_on\": \"{{today}}\"\n}" }, "url": "{{baseUrl}}/employees" }
+    },
+    {
+      "name": "Create employee with no attendance (headcount case)",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('second employee created', function () { pm.response.to.have.status(201); pm.expect(pm.response.json().emp_code).to.eql(pm.collectionVariables.get('empCode2')); });"
+      ]}}],
+      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"emp_code\": \"{{empCode2}}\",\n  \"name\": \"Postman No Log Employee\",\n  \"email\": \"{{empCode2}}@example.test\",\n  \"department\": \"{{department}}\",\n  \"joined_on\": \"{{today}}\"\n}" }, "url": "{{baseUrl}}/employees" }
+    },
+    {
+      "name": "List employees (department filter and pagination)",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('filtered employee page is valid', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  pm.expect(b.page).to.eql(1); pm.expect(b.total).to.be.at.least(2);",
+        "  pm.expect(b.items.some(function (x) { return x.emp_code === pm.collectionVariables.get('empCode'); })).to.eql(true);",
+        "});"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/employees?department={{department}}&page=1&page_size=10" }
+    },
+    {
+      "name": "Punch in",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('punch-in record has computed fields and epoch time', function () {",
+        "  pm.response.to.have.status(201); var b = pm.response.json();",
+        "  pm.expect(b.emp_code).to.eql(pm.collectionVariables.get('empCode'));",
+        "  pm.expect(b.punch_in).to.be.a('number'); pm.expect(b.punch_out).to.eql(null);",
+        "  pm.expect(b.history).to.eql([]); pm.expect(b).not.to.have.property('_id');",
+        "});"
+      ]}}],
+      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"emp_code\": \"{{empCode}}\",\n  \"punched_at\": {{punchInAt}},\n  \"status\": \"PRESENT\"\n}" }, "url": "{{baseUrl}}/attendance/punch-in" }
+    },
+    {
+      "name": "Punch out",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('punch-out computes durations', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  pm.expect(b.punch_out).to.be.a('number'); pm.expect(b.work_hours).to.be.a('number');",
+        "  pm.expect(b.overtime_minutes).to.be.a('number'); pm.expect(b.half_day).to.be.a('boolean');",
+        "});"
+      ]}}],
+      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"emp_code\": \"{{empCode}}\",\n  \"punched_at\": {{punchOutAt}}\n}" }, "url": "{{baseUrl}}/attendance/punch-out" }
+    },
+    {
+      "name": "List attendance (filters and pagination)",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('attendance list returns records without Mongo ids', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  pm.expect(b.page).to.eql(1); pm.expect(b.total).to.be.at.least(1);",
+        "  pm.expect(b.items.some(function (x) { return x.emp_code === pm.collectionVariables.get('empCode'); })).to.eql(true);",
+        "  pm.expect(b.items[0]).not.to.have.property('_id');",
+        "});"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/attendance?emp_code={{empCode}}&date_from={{today}}&date_to={{today}}&page=1&page_size=10" }
+    },
+    {
+      "name": "Regularize attendance (PATCH and history)",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('regularization appends audit history', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  pm.expect(b.status).to.eql('WFH'); pm.expect(b.history.length).to.be.at.least(1);",
+        "  pm.expect(b.history[b.history.length - 1].by).to.eql('postman');",
+        "});"
+      ]}}],
+      "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"WFH\",\n  \"reason\": \"Postman endpoint check\",\n  \"regularized_by\": \"postman\"\n}" }, "url": "{{baseUrl}}/attendance/{{empCode}}/{{today}}" }
+    },
+    {
+      "name": "Employee monthly analytics",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('monthly summary has contract fields', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  pm.expect(b.emp_code).to.eql(pm.collectionVariables.get('empCode'));",
+        "  ['working_days','present_days','leave_days','late_count','total_late_minutes','total_overtime_minutes','attendance_pct'].forEach(function (k) { pm.expect(b).to.have.property(k); });",
+        "});"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/analytics/employees/{{empCode}}/monthly?month={{month}}" }
+    },
+    {
+      "name": "Department summary analytics",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('summary includes employees with no logs', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  var row = b.items.find(function (x) { return x.department === pm.collectionVariables.get('department'); });",
+        "  pm.expect(row).to.exist; pm.expect(row.headcount).to.eql(2); pm.expect(row).to.have.property('avg_work_hours');",
+        "});"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/analytics/departments/summary?month={{month}}&department={{department}}" }
+    },
+    {
+      "name": "Late leaderboard analytics",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('leaderboard response is ranked', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  pm.expect(b.month).to.eql(pm.collectionVariables.get('month')); pm.expect(b.items).to.be.an('array');",
+        "  b.items.forEach(function (x) { pm.expect(x.rank).to.be.a('number'); pm.expect(x.total_late_minutes).to.be.above(0); });",
+        "});"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/analytics/leaderboard/late?month={{month}}&limit=10&department={{department}}" }
+    },
+    {
+      "name": "Department trend analytics",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('trend fills the requested date range', function () {",
+        "  pm.response.to.have.status(200); var b = pm.response.json();",
+        "  pm.expect(b.department).to.eql(pm.collectionVariables.get('department'));",
+        "  pm.expect(b.items).to.have.length(1); pm.expect(b.items[0].date).to.eql(pm.collectionVariables.get('today'));",
+        "  ['headcount','present_count','late_count','attendance_rate','moving_avg_7d'].forEach(function (k) { pm.expect(b.items[0]).to.have.property(k); });",
+        "});"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/analytics/departments/{{department}}/trend?from={{today}}&to={{today}}" }
+    },
+    {
+      "name": "Explain attendance list",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('explain uses index scan', function () { pm.response.to.have.status(200); var s = JSON.stringify(pm.response.json().explain); pm.expect(s).to.include('IXSCAN'); pm.expect(s).not.to.include('COLLSCAN'); });"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/admin/explain/attendance_list?page=1&page_size=10&emp_code={{empCode}}&date_from={{today}}&date_to={{today}}" }
+    },
+    {
+      "name": "Explain employee monthly",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('explain uses index scan', function () { pm.response.to.have.status(200); var s = JSON.stringify(pm.response.json().explain); pm.expect(s).to.include('IXSCAN'); pm.expect(s).not.to.include('COLLSCAN'); });"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/admin/explain/employee_monthly?emp_code={{empCode}}&month={{month}}" }
+    },
+    {
+      "name": "Explain department summary",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('explain uses index scan', function () { pm.response.to.have.status(200); var s = JSON.stringify(pm.response.json().explain); pm.expect(s).to.include('IXSCAN'); pm.expect(s).not.to.include('COLLSCAN'); });"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/admin/explain/department_summary?month={{month}}&department={{department}}" }
+    },
+    {
+      "name": "Explain late leaderboard",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('explain uses index scan', function () { pm.response.to.have.status(200); var s = JSON.stringify(pm.response.json().explain); pm.expect(s).to.include('IXSCAN'); pm.expect(s).not.to.include('COLLSCAN'); });"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/admin/explain/late_leaderboard?month={{month}}&limit=10&department={{department}}" }
+    },
+    {
+      "name": "Explain department trend",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('explain uses index scan', function () { pm.response.to.have.status(200); var s = JSON.stringify(pm.response.json().explain); pm.expect(s).to.include('IXSCAN'); pm.expect(s).not.to.include('COLLSCAN'); });"
+      ]}}],
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/admin/explain/department_trend?department={{department}}&from={{today}}&to={{today}}" }
+    }
+  ]
+}
